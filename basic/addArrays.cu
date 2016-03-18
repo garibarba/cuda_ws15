@@ -26,6 +26,14 @@ void cuda_check(string file, int line)
     }
 }
 
+__device__ float add(float a, float b) {
+  return a + b;
+}
+
+__global__ void add_global(float *d_a, float *d_b, float *d_c, int n) {
+  int ind = threadIdx.x + blockDim.x * blockIdx.x;
+  if (ind < n) d_c[ind] = add(d_a[ind], d_b[ind]);
+}
 
 int main(int argc, char **argv)
 {
@@ -50,7 +58,7 @@ int main(int argc, char **argv)
     cout << endl;
     // init c
     for(int i=0; i<n; i++) c[i] = 0;
-    
+
 
 
     // GPU computation
@@ -61,8 +69,36 @@ int main(int argc, char **argv)
     // ### 1. Remember to free all GPU arrays after the computation
     // ### 2. Always use the macro CUDA_CHECK after each CUDA call, e.g. "cudaMalloc(...); CUDA_CHECK;"
     // ###    For convenience this macro is defined directly in this file, later we will only include "helper.h"
-    
 
+    // allocate GPU memory
+    size_t nbytes = n*sizeof(float);
+    float *d_a = NULL;
+    float *d_b = NULL;
+    float *d_c = NULL;
+    cudaMalloc(&d_a, nbytes);
+    cudaMemset(d_a, 0, nbytes);
+    cudaMalloc(&d_b, nbytes);
+    cudaMemset(d_b, 0, nbytes);
+    cudaMalloc(&d_c, nbytes);
+    cudaMemset(d_c, 0, nbytes);
+
+    //copy host memory to device
+    cudaMemcpy( d_a, a, nbytes, cudaMemcpyHostToDevice );
+    cudaMemcpy( d_b, b, nbytes, cudaMemcpyHostToDevice );
+
+    // launch kernel
+    dim3 block = dim3(32,1,1);
+    dim3 grid = dim3(1,1,1);
+    add_global <<<grid,block>>> (d_a, d_b, d_c, n);
+    CUDA_CHECK;
+
+    // copy device memory to host
+    cudaMemcpy( c, d_c, nbytes, cudaMemcpyDeviceToHost );
+
+    // free GPU arrays
+    cudaFree(d_a);
+    cudaFree(d_b);
+    cudaFree(d_c);
 
     // print result
     cout << "GPU:"<<endl;
@@ -74,6 +110,3 @@ int main(int argc, char **argv)
     delete[] b;
     delete[] c;
 }
-
-
-
