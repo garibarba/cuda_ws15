@@ -64,7 +64,7 @@ __global__ void divergence(float *d_2dvec_imgIn, float *d_div, int w, int h, int
   for (int c = 0; c < nc; c++) {
     if (x > 0) dx = d_2dvec_imgIn[ind + (size_t)c*w*h] - d_2dvec_imgIn[ind + (size_t)c*w*h - 1]; // derivative along x
     else       dx = d_2dvec_imgIn[ind + (size_t)c*w*h];
-    if (y > 0) dy = d_2dvec_imgIn[ind + (size_t)c*w*h + nc*w*h] - d_2dvec_imgIn[ind + (size_t)c*w*h - w]; // derivative along y
+    if (y > 0) dy = d_2dvec_imgIn[ind + (size_t)c*w*h + nc*w*h] - d_2dvec_imgIn[ind + (size_t)c*w*h + nc*w*h - w]; // derivative along y
     else       dy = d_2dvec_imgIn[ind + (size_t)c*w*h + nc*w*h];
     d_div[ind + (size_t)c*w*h] = dx + dy;
   }
