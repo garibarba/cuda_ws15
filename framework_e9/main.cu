@@ -19,15 +19,15 @@ using namespace std;
 __device__ size_t clamp(size_t ind, size_t minval, size_t maxval) {
   return min(max(minval, ind), maxval);
 }
-__global__ void gradient(float *d_imgIn, float *d_imgGrad, int w, int h, int nc) {
+__global__ void gradient(float *d_imgIn, float *d_imgGrad_x, float *d_imgGrad_y, int w, int h, int nc) {
   int x = threadIdx.x + blockDim.x * blockIdx.x;
   int y = threadIdx.y + blockDim.y * blockIdx.y;
   size_t ind = x + w * y;
   for (int c = 0; c < nc; c++) {
-    if (x + 1 < w) d_imgGrad[ind + (size_t)c*w*h] = d_imgIn[ind + (size_t)c*w*h + 1] - d_imgIn[ind + (size_t)c*w*h]; // derivative along x
-    else           d_imgGrad[ind + (size_t)c*w*h] = 0;
-    if (y + 1 < h) d_imgGrad[ind + (size_t)c*w*h + w*h*nc] = d_imgIn[ind + (size_t)c*w*h + w] - d_imgIn[ind + (size_t)c*w*h]; // derivative along y
-    else           d_imgGrad[ind + (size_t)c*w*h + w*h*nc] = 0;
+    if (x + 1 < w) d_imgGrad_x[ind + (size_t)c*w*h] = d_imgIn[ind + (size_t)c*w*h + 1] - d_imgIn[ind + (size_t)c*w*h]; // derivative along x
+    else           d_imgGrad_x[ind + (size_t)c*w*h] = 0;
+    if (y + 1 < h) d_imgGrad_y[ind + (size_t)c*w*h] = d_imgIn[ind + (size_t)c*w*h + w] - d_imgIn[ind + (size_t)c*w*h]; // derivative along y
+    else           d_imgGrad_y[ind + (size_t)c*w*h] = 0;
   }
 }
 
@@ -55,17 +55,17 @@ __global__ void ri_gradient(float *d_imgIn, float *d_imgGrad_x, float *d_imgGrad
   }
 }
 
-__global__ void divergence(float *d_2dvec_imgIn, float *d_div, int w, int h, int nc) {
+__global__ void divergence_2d(float *d_imgV1, float *d_imgV2, float *d_div, int w, int h, int nc) {
   int x = threadIdx.x + blockDim.x * blockIdx.x;
   int y = threadIdx.y + blockDim.y * blockIdx.y;
   float dx;
   float dy;
   size_t ind = x + w * y;
   for (int c = 0; c < nc; c++) {
-    if (x > 0) dx = d_2dvec_imgIn[ind + (size_t)c*w*h] - d_2dvec_imgIn[ind + (size_t)c*w*h - 1]; // derivative along x
-    else       dx = d_2dvec_imgIn[ind + (size_t)c*w*h];
-    if (y > 0) dy = d_2dvec_imgIn[ind + (size_t)c*w*h + nc*w*h] - d_2dvec_imgIn[ind + (size_t)c*w*h - w]; // derivative along y
-    else       dy = d_2dvec_imgIn[ind + (size_t)c*w*h + nc*w*h];
+    if (x > 0) dx = d_imgV1[ind + (size_t)c*w*h] - d_imgV1[ind + (size_t)c*w*h - 1]; // derivative along x
+    else       dx = d_imgV1[ind + (size_t)c*w*h];
+    if (y > 0) dy = d_imgV2[ind + (size_t)c*w*h] - d_imgV2[ind + (size_t)c*w*h - w]; // derivative along y
+    else       dy = d_imgV2[ind + (size_t)c*w*h];
     d_div[ind + (size_t)c*w*h] = dx + dy;
   }
 }
@@ -217,12 +217,10 @@ int main(int argc, char **argv)
     // ###
 
     float *d_imgIn = NULL;
-    float *d_imgGrad = NULL;
     float *d_imgGrad_x = NULL;
     float *d_imgGrad_y = NULL;
     float *d_imgOut = NULL;
     cudaMalloc( &d_imgIn, w*h*nc*sizeof(float) );
-    cudaMalloc( &d_imgGrad, 2*w*h*nc*sizeof(float) );
     cudaMalloc( &d_imgGrad_x, w*h*nc*sizeof(float) );
     cudaMalloc( &d_imgGrad_y, w*h*nc*sizeof(float) );
     cudaMalloc( &d_imgOut, w*h*sizeof(float) );
@@ -236,9 +234,9 @@ int main(int argc, char **argv)
     // launch kernel
     dim3 block = dim3(32,8,1);
     dim3 grid = dim3( (w + block.x -1)/block.x, (h + block.y -1)/block.y, 1);
-    gradient <<<grid,block>>> (d_imgIn, d_imgGrad, w, h, nc); CUDA_CHECK;
-    // ri_gradient <<<grid,block>>> (d_imgIn, d_imgGrad_x, d_imgGrad_y, w, h, nc); CUDA_CHECK;
-    divergence <<<grid,block>>> (d_imgGrad, d_imgIn, w, h, nc); CUDA_CHECK;
+    gradient <<<grid,block>>> (d_imgIn, d_imgGrad_x, d_imgGrad_y, w, h, nc); CUDA_CHECK;
+    // ri_gradient <<<grid,block>>> (d_imgIn, d_imgGrad_x, d_imgGrad_y, w, h, nc); CUDA_CHECK; //rotationally more invariant gradient
+    divergence_2d <<<grid,block>>> (d_imgGrad_x, d_imgGrad_y, d_imgIn, w, h, nc); CUDA_CHECK;
     l2norm <<<grid,block>>> (d_imgIn, d_imgOut, w, h, nc); CUDA_CHECK;
 
     timer2.end(); float t2 = timer2.get();  // elapsed time in seconds
@@ -249,7 +247,6 @@ int main(int argc, char **argv)
 
     // free GPU arrays
     cudaFree(d_imgIn);
-    cudaFree(d_imgGrad);
     cudaFree(d_imgGrad_x);
     cudaFree(d_imgGrad_y);
     cudaFree(d_imgOut);
