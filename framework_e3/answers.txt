@@ -1,0 +1,3 @@
+2. SSH too slow
+3. The kernel running time is 1 10th of the GPU time. Copying in memory is the bottleneck.
+4. It does not change much. Tried 32x8, 32x32, 128x4, 32x4 and I cannot see any significant variations.
