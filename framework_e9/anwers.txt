@@ -1,0 +1,9 @@
+6. With tau too large the image turns noisy and then goes black.
+With very large times, the image becomes of uniform colour (average colour).
+
+7. It is equivalent.
+
+8. The inverse of the maximum preserves the edges and smoothes inside.
+The exponential potentiates update for small gradients and reduces the update big gradients.
+It has the same effect as the first, but stronger.
+Good values in both cases for lighthouse are -tau 0.001 -N 500 -epsilon 0.01

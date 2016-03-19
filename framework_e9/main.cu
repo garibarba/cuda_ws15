@@ -11,6 +11,7 @@
 
 #include "helper.h"
 #include <iostream>
+#include <stdio.h>
 using namespace std;
 
 // uncomment to use the camera
@@ -80,6 +81,64 @@ __global__ void l2norm(float *d_imgIn, float *d_imgOut, int w, int h, int nc) {
   d_imgOut[ind] = sqrtf(d_imgOut[ind]);
 }
 
+__host__ __device__ float g_one(float s = 1, float epsilon = 1) {
+  return 1.f;
+}
+
+__host__ __device__ float g_max(float s, float epsilon) {
+  return 1.f/max(s, epsilon);
+}
+
+__host__ __device__ float g_exp(float s, float epsilon) {
+  return expf(-s*s/ epsilon)/ epsilon;
+}
+
+// calculate the norm of a 2D vector
+__host__ __device__ float norm_2d(float v1, float v2) {
+  return sqrtf(v1*v1 + v2*v2);
+}
+
+__global__ void scalar_mult(float *imgV1, float *imgV2, int w, int h, int nc, float epsilon = 1) {
+  int x = threadIdx.x + blockDim.x * blockIdx.x;
+  int y = threadIdx.y + blockDim.y * blockIdx.y;
+  if (x < w && y < h) {
+    int idx;
+    float norma;
+    // for every channel
+    for (int c = 0; c < nc; c++) {
+      idx = x + y*w + c*w*h;
+      norma = norm_2d(imgV1[idx], imgV2[idx]);
+      // imgV1[idx] *= g_one(norma, epsilon);
+      // imgV2[idx] *= g_one(norma, epsilon);
+      imgV1[idx] *= g_max(norma, epsilon);
+      imgV2[idx] *= g_max(norma, epsilon);
+      // imgV1[idx] *= g_exp(norma, epsilon);
+      // imgV2[idx] *= g_exp(norma, epsilon);
+    }
+  }
+}
+
+__global__ void time_step(float *imgIn, float *imgGrad, float tau, int w, int h, int nc) {
+  int x = threadIdx.x + blockDim.x * blockIdx.x;
+  int y = threadIdx.y + blockDim.y * blockIdx.y;
+  if (x < w && y < h) {
+    int idx;
+    // for every channel
+    for (int c = 0; c < nc; c++) {
+      idx = x + y*w + c*w*h;
+      imgIn[idx] += tau*imgGrad[idx];
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
 int main(int argc, char **argv)
 {
     // Before the GPU can process your kernels, a so called "CUDA context" must be initialized
@@ -117,6 +176,22 @@ int main(int argc, char **argv)
 
     // ### Define your own parameters here as needed
 
+    // number of time steps
+    int N = 10;
+    getParam("N", N, argc, argv);
+    cout << "N: " << N << endl;
+
+    // size of time steps
+    float tau = 0.25;
+    getParam("tau", tau, argc, argv);
+    cout << "tau: " << tau << endl;
+
+    cout << "tau x N = " << tau*N << ", if anisotropic is equivalent to sigma = " << sqrt(2*tau*N) << endl;
+
+    // g function parameter epsilon
+    float epsilon = 0.01;
+    getParam("epsilon", epsilon, argc, argv);
+    cout << "epsilon: " << epsilon << endl;
 
 
 
@@ -162,9 +237,9 @@ int main(int argc, char **argv)
     // ### TODO: Change the output image format as needed
     // ###
     // ###
-    // cv::Mat mOut(h,w,mIn.type());  // mOut will have the same number of channels as the input image, nc layers
+    cv::Mat mOut(h,w,mIn.type());  // mOut will have the same number of channels as the input image, nc layers
     //cv::Mat mOut(h,w,CV_32FC3);    // mOut will be a color image, 3 layers
-    cv::Mat mOut(h,w,CV_32FC1);    // mOut will be a grayscale image, 1 layer
+    // cv::Mat mOut(h,w,CV_32FC1);    // mOut will be a grayscale image, 1 layer
     // ### Define your own output images here as needed
 
 
@@ -217,14 +292,16 @@ int main(int argc, char **argv)
     // ###
 
     float *d_imgIn = NULL;
+    float *d_imgTimeGrad = NULL;
     float *d_imgGrad_x = NULL;
     float *d_imgGrad_y = NULL;
     float *d_imgOut = NULL;
     cudaMalloc( &d_imgIn, w*h*nc*sizeof(float) );
+    cudaMalloc( &d_imgTimeGrad, w*h*nc*sizeof(float) );
     cudaMalloc( &d_imgGrad_x, w*h*nc*sizeof(float) );
     cudaMalloc( &d_imgGrad_y, w*h*nc*sizeof(float) );
-    cudaMalloc( &d_imgOut, w*h*sizeof(float) );
-    cudaMemset( d_imgOut, 0, w*h*sizeof(float) );
+    cudaMalloc( &d_imgOut, nc*w*h*sizeof(float) );
+    cudaMemset( d_imgOut, 0, nc*w*h*sizeof(float) );
 
     //copy host memory to device
     cudaMemcpy( d_imgIn, imgIn, w*h*nc*sizeof(float), cudaMemcpyHostToDevice );
@@ -234,19 +311,22 @@ int main(int argc, char **argv)
     // launch kernel
     dim3 block = dim3(32,8,1);
     dim3 grid = dim3( (w + block.x -1)/block.x, (h + block.y -1)/block.y, 1);
-    gradient <<<grid,block>>> (d_imgIn, d_imgGrad_x, d_imgGrad_y, w, h, nc); CUDA_CHECK;
-    // ri_gradient <<<grid,block>>> (d_imgIn, d_imgGrad_x, d_imgGrad_y, w, h, nc); CUDA_CHECK; //rotationally more invariant gradient
-    divergence_2d <<<grid,block>>> (d_imgGrad_x, d_imgGrad_y, d_imgIn, w, h, nc); CUDA_CHECK;
-    l2norm <<<grid,block>>> (d_imgIn, d_imgOut, w, h, nc); CUDA_CHECK;
+
+    for (int n = 0; n < N; n++) {
+      gradient <<<grid,block>>> (d_imgIn, d_imgGrad_x, d_imgGrad_y, w, h, nc); CUDA_CHECK;
+      scalar_mult <<<grid,block>>> (d_imgGrad_x, d_imgGrad_y, w, h, nc, epsilon); CUDA_CHECK;
+      divergence_2d <<<grid,block>>> (d_imgGrad_x, d_imgGrad_y, d_imgTimeGrad, w, h, nc); CUDA_CHECK;
+      time_step <<<grid,block>>> (d_imgIn, d_imgTimeGrad, tau, w, h, nc);
+    }
 
     timer2.end(); float t2 = timer2.get();  // elapsed time in seconds
 
     // copy device memory to host
-    cudaMemcpy( imgOut, d_imgOut, w*h*sizeof(float), cudaMemcpyDeviceToHost );
-    // cudaMemcpy( imgOut, d_imgGrad_y, w*h*sizeof(float), cudaMemcpyDeviceToHost );
+    cudaMemcpy( imgOut, d_imgIn, nc*w*h*sizeof(float), cudaMemcpyDeviceToHost );
 
     // free GPU arrays
     cudaFree(d_imgIn);
+    cudaFree(d_imgTimeGrad);
     cudaFree(d_imgGrad_x);
     cudaFree(d_imgGrad_y);
     cudaFree(d_imgOut);
@@ -261,14 +341,14 @@ int main(int argc, char **argv)
 
 
 
+    // show output image: first convert to interleaved opencv format from the layered raw array
+    convert_layered_to_mat(mOut, imgOut);
+    showImage("Output", mOut, 100+w+40, 100);
 
 
     // show input image
     showImage("Input", mIn, 100, 100);  // show at position (x_from_left=100,y_from_above=100)
 
-    // show output image: first convert to interleaved opencv format from the layered raw array
-    convert_layered_to_mat(mOut, imgOut);
-    showImage("Output", mOut, 100+w+40, 100);
 
     // ### Display your own output images here as needed
 
