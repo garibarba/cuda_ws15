@@ -205,10 +205,16 @@ int main(int argc, char **argv)
     // ### Define your own parameters here as needed
 
     // load the value for sigma if "-sigma" is specified
-    float sigma = 0.5;
+    float sigma = 1;
     getParam("sigma", sigma, argc, argv);
-    cout << "sigma: " << sigma << " with kernel size of 2*ceil(3*sigma) + 1" << endl;
-    int kernel_size = 2*ceil(3*sigma) + 1; // directly defined by sigma
+    cout << "sigma: " << sigma << " with smoothing kernel size of 2*ceil(3*sigma) + 1" << endl;
+    int kernel_size_sigma = 2*ceil(3*sigma) + 1; // directly defined by sigma
+
+    // load the value for ro if "-ro" is specified
+    float ro = 0.5;
+    getParam("ro", ro, argc, argv);
+    cout << "ro: " << ro << " with averaging kernel size of 2*ceil(3*ro) + 1" << endl;
+    int kernel_size_ro = 2*ceil(3*sigma) + 1; // directly defined by sigma
 
     // load the value for beta if "-beta" is specified
     float beta = 0.001;
@@ -272,7 +278,7 @@ int main(int argc, char **argv)
     // ### Define your own output images here as needed
 
     // Set the OpenCV kernel display image
-    cv::Mat mKer(kernel_size, kernel_size, CV_32FC1);
+    cv::Mat mKer(kernel_size_sigma, kernel_size_sigma, CV_32FC1);
     // structure tensor grayscale Output image
     cv::Mat mOutMii(h,w,CV_32FC1);  // mOutMii will have just one channel
 
@@ -318,7 +324,8 @@ int main(int argc, char **argv)
 
 
 
-    float *kernel = gaussian_kernel(kernel_size, sigma);
+    float *kernel_sigma = gaussian_kernel(kernel_size_sigma, sigma);
+    float *kernel_ro = gaussian_kernel(kernel_size_ro, ro);
 
   // #ifndef CAMERA
   //   // CPU time
@@ -344,7 +351,8 @@ int main(int argc, char **argv)
     // ###
     // ###
     // initialize device memory
-    float *d_kernel = NULL;
+    float *d_kernel_sigma = NULL;
+    float *d_kernel_ro = NULL;
     float *d_imgIn = NULL;
     float *d_imgV1 = NULL;
     float *d_imgV2 = NULL;
@@ -356,7 +364,8 @@ int main(int argc, char **argv)
     float *d_imgT12 = NULL;
     float *d_imgT22 = NULL;
     float *d_imgOut = NULL;
-    cudaMalloc( &d_kernel, kernel_size*kernel_size*sizeof(float) ); CUDA_CHECK;
+    cudaMalloc( &d_kernel_sigma, kernel_size_sigma*kernel_size_sigma*sizeof(float) ); CUDA_CHECK;
+    cudaMalloc( &d_kernel_ro, kernel_size_ro*kernel_size_ro*sizeof(float) ); CUDA_CHECK;
     cudaMalloc( &d_imgIn, w*h*nc*sizeof(float) ); CUDA_CHECK;
     cudaMalloc( &d_imgV1, w*h*nc*sizeof(float) ); CUDA_CHECK;
     cudaMalloc( &d_imgV2, w*h*nc*sizeof(float) ); CUDA_CHECK;
@@ -381,17 +390,18 @@ int main(int argc, char **argv)
     cudaMemset( d_imgT22, 0, w*h*sizeof(float) ); CUDA_CHECK;
     cudaMemset( d_imgOut, 0, w*h*nc*sizeof(float) ); CUDA_CHECK;
     // copy image and kernel to device
-    cudaMemcpy( d_kernel, kernel, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice ); CUDA_CHECK;
+    cudaMemcpy( d_kernel_sigma, kernel_sigma, kernel_size_sigma*kernel_size_sigma*sizeof(float), cudaMemcpyHostToDevice ); CUDA_CHECK;
+    cudaMemcpy( d_kernel_ro, kernel_ro, kernel_size_ro*kernel_size_ro*sizeof(float), cudaMemcpyHostToDevice ); CUDA_CHECK;
     cudaMemcpy( d_imgIn, imgIn, w*h*nc*sizeof(float), cudaMemcpyHostToDevice ); CUDA_CHECK;
     // launch kernel
     dim3 block = dim3(32,8,1);
     dim3 grid = dim3( (w + block.x -1)/block.x, (h + block.y -1)/block.y, 1);
-    gpu_convolution <<<grid,block>>> (d_imgIn, d_imgS, d_kernel, w, h, nc, kernel_size); CUDA_CHECK;
+    gpu_convolution <<<grid,block>>> (d_imgIn, d_imgS, d_kernel_sigma, w, h, nc, kernel_size_ro); CUDA_CHECK;
     ri_gradient <<<grid,block>>> (d_imgS, d_imgV1, d_imgV2, w, h, nc); CUDA_CHECK;
     gpu_m_product <<<grid,block>>> (d_imgV1, d_imgV2, d_imgM11, d_imgM12, d_imgM22, w, h, nc); CUDA_CHECK;
-    gpu_convolution <<<grid,block>>> (d_imgM11, d_imgT11, d_kernel, w, h, 1, kernel_size); CUDA_CHECK;
-    gpu_convolution <<<grid,block>>> (d_imgM12, d_imgT12, d_kernel, w, h, 1, kernel_size); CUDA_CHECK;
-    gpu_convolution <<<grid,block>>> (d_imgM22, d_imgT22, d_kernel, w, h, 1, kernel_size); CUDA_CHECK;
+    gpu_convolution <<<grid,block>>> (d_imgM11, d_imgT11, d_kernel_ro, w, h, 1, kernel_size_ro); CUDA_CHECK;
+    gpu_convolution <<<grid,block>>> (d_imgM12, d_imgT12, d_kernel_ro, w, h, 1, kernel_size_ro); CUDA_CHECK;
+    gpu_convolution <<<grid,block>>> (d_imgM22, d_imgT22, d_kernel_ro, w, h, 1, kernel_size_ro); CUDA_CHECK;
     gpu_edges_corners <<<grid,block>>> (d_imgOut, d_imgIn, d_imgM11, d_imgM12, d_imgM22, alpha, beta, w, h, nc); CUDA_CHECK;
 
 
@@ -433,13 +443,14 @@ int main(int argc, char **argv)
     // ### Display your own output images here as needed
 
     // show kernel image
-    convert_layered_to_mat(mKer, kernel);
+    convert_layered_to_mat(mKer, kernel_sigma);
     // double min, max;
     // cv::minMaxLoc(mKer, &min, &max);
-    showImage("Kernel", mKer/kernel[kernel_size*kernel_size/2], 50 - kernel_size, 100); // mKer is upscaled with its largest value for visualization
-    
+    showImage("Kernel sigma", mKer/kernel_sigma[kernel_size_sigma*kernel_size_sigma/2], 50 - kernel_size_sigma, 100); // mKer is upscaled with its largest value for visualization
+
     // free device memory
-    cudaFree(d_kernel);
+    cudaFree(d_kernel_sigma);
+    cudaFree(d_kernel_ro);
     cudaFree(d_imgIn);
     cudaFree(d_imgV1);
     cudaFree(d_imgV2);
