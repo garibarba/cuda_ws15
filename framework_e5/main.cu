@@ -14,7 +14,7 @@
 using namespace std;
 
 // uncomment to use the camera
-#define CAMERA
+// #define CAMERA
 
 // clamp an index to the min and max values specified
 int clamp(int idx, int min, int max);

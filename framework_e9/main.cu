@@ -108,12 +108,12 @@ __global__ void scalar_mult(float *imgV1, float *imgV2, int w, int h, int nc, fl
     for (int c = 0; c < nc; c++) {
       idx = x + y*w + c*w*h;
       norma = norm_2d(imgV1[idx], imgV2[idx]);
-      // imgV1[idx] *= g_one(norma, epsilon);
-      // imgV2[idx] *= g_one(norma, epsilon);
-      imgV1[idx] *= g_max(norma, epsilon);
-      imgV2[idx] *= g_max(norma, epsilon);
-      // imgV1[idx] *= g_exp(norma, epsilon);
-      // imgV2[idx] *= g_exp(norma, epsilon);
+//      imgV1[idx] *= g_one(norma, epsilon);
+//      imgV2[idx] *= g_one(norma, epsilon);
+//      imgV1[idx] *= g_max(norma, epsilon);
+ //     imgV2[idx] *= g_max(norma, epsilon);
+      imgV1[idx] *= g_exp(norma, epsilon);
+      imgV2[idx] *= g_exp(norma, epsilon);
     }
   }
 }

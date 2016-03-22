@@ -22,12 +22,12 @@ __device__ size_t clamp(size_t ind, size_t minval, size_t maxval) {
 __global__ void gradient(float *d_imgIn, float *d_imgGrad, int w, int h, int nc) {
   int x = threadIdx.x + blockDim.x * blockIdx.x;
   int y = threadIdx.y + blockDim.y * blockIdx.y;
-  size_t ind = x + w * y;
+  int ind = x + w * y;
   for (int c = 0; c < nc; c++) {
-    if (x + 1 < w) d_imgGrad[ind + (size_t)c*w*h] = d_imgIn[ind + (size_t)c*w*h + 1] - d_imgIn[ind + (size_t)c*w*h]; // derivative along x
-    else           d_imgGrad[ind + (size_t)c*w*h] = 0;
-    if (y + 1 < h) d_imgGrad[ind + (size_t)c*w*h + w*h*nc] = d_imgIn[ind + (size_t)c*w*h + w] - d_imgIn[ind + (size_t)c*w*h]; // derivative along y
-    else           d_imgGrad[ind + (size_t)c*w*h + w*h*nc] = 0;
+    if (x + 1 < w) d_imgGrad[ind + c*w*h] = d_imgIn[ind + c*w*h + 1] - d_imgIn[ind + c*w*h]; // derivative along x
+    else           d_imgGrad[ind + c*w*h] = 0;
+    if (y + 1 < h) d_imgGrad[ind + c*w*h + w*h*nc] = d_imgIn[ind + c*w*h + w] - d_imgIn[ind + c*w*h]; // derivative along y
+    else           d_imgGrad[ind + c*w*h + w*h*nc] = 0;
   }
 }
 

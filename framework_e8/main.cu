@@ -219,9 +219,11 @@ int main(int argc, char **argv)
     // load the value for beta if "-beta" is specified
     float beta = 0.001;
     getParam("beta", beta, argc, argv);
+    cout << "beta: " << beta << endl;
     // load the value for alpha if "-alpha" is specified
     float alpha = 0.01;
     getParam("alpha", alpha, argc, argv);
+    cout << "alpha: " << alpha << endl;
     if (beta <= 0)
       cout << "!!! beta should be > 0" << endl;
     if (alpha <= beta)
@@ -402,7 +404,7 @@ int main(int argc, char **argv)
     gpu_convolution <<<grid,block>>> (d_imgM11, d_imgT11, d_kernel_ro, w, h, 1, kernel_size_ro); CUDA_CHECK;
     gpu_convolution <<<grid,block>>> (d_imgM12, d_imgT12, d_kernel_ro, w, h, 1, kernel_size_ro); CUDA_CHECK;
     gpu_convolution <<<grid,block>>> (d_imgM22, d_imgT22, d_kernel_ro, w, h, 1, kernel_size_ro); CUDA_CHECK;
-    gpu_edges_corners <<<grid,block>>> (d_imgOut, d_imgIn, d_imgM11, d_imgM12, d_imgM22, alpha, beta, w, h, nc); CUDA_CHECK;
+    gpu_edges_corners <<<grid,block>>> (d_imgOut, d_imgIn, d_imgT11, d_imgT12, d_imgT22, alpha, beta, w, h, nc); CUDA_CHECK;
 
 
     // ###
@@ -438,7 +440,7 @@ int main(int argc, char **argv)
     // show output image: first convert to interleaved opencv format from the layered raw array
     cudaMemcpy( imgOut, d_imgOut, nc*w*h*sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
     convert_layered_to_mat(mOut, imgOut);
-    showImage("CPU Output", mOut, 50+w/2, 100 + h);
+    showImage("Corners and edges Output", mOut, 50+w/2, 100 + h);
 
     // ### Display your own output images here as needed
 
